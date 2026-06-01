@@ -13,8 +13,8 @@
       - anon public  → SUPABASE_ANON_KEY
    ================================================ */
 
-window.SUPABASE_URL      = 'SUA_URL_AQUI';
-window.SUPABASE_ANON_KEY = 'SUA_CHAVE_AQUI';
+window.SUPABASE_URL      = 'https://nznckamspfeiiyfzogfg.supabase.co';
+window.SUPABASE_ANON_KEY = 'sb_publishable_mnJ6k2lgpfj1rLpsKceY6g_eUTUm-wk';
 
 /* ================================================
    EXEMPLO (não use em produção):

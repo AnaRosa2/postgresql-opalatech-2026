@@ -5,9 +5,7 @@
    ================================================ */
 
 /* ── Estado global ── */
-let supabase = null;
-let chartStatus = null;
-let chartHospedes = null;
+let supabaseClient = null;
 
 /* ================================================
    INICIALIZAÇÃO
@@ -35,7 +33,7 @@ function initSupabase() {
 
     /* FIX 1: desestruturação correta do bundle UMD do Supabase JS v2 */
     const { createClient } = window.supabase;
-    supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    supabaseClient = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
     setStatus('loading', 'Conectando...');
     loadDashboard();
@@ -64,12 +62,8 @@ function setStatus(type, message) {
 
 async function loadDashboard() {
   try {
-    await Promise.all([
-      loadStats(),
-      loadTabelaReservas(),
-      loadChartStatus(),
-      loadChartHospedes(),
-    ]);
+    // Versão read-only para minicurso: carregar apenas tabela principal de reservas
+    await loadTabelaReservas();
     setStatus('connected', 'Conectado');
   } catch (err) {
     setStatus('error', 'Erro ao carregar');
@@ -77,37 +71,8 @@ async function loadDashboard() {
   }
 }
 
-/* ================================================
-   CARDS DE ESTATÍSTICAS
-   Tabelas: hospedes, quartos, reservas
-   Colunas: valor_total
-   ================================================ */
-
-async function loadStats() {
-  const [
-    { count: totalHospedes },
-    { count: totalQuartos  },
-    { count: totalReservas },
-    { data: receita        },
-  ] = await Promise.all([
-    supabase.from('hospedes').select('*', { count: 'exact', head: true }),
-    supabase.from('quartos') .select('*', { count: 'exact', head: true }),
-    supabase.from('reservas').select('*', { count: 'exact', head: true }),
-    supabase.from('reservas').select('valor_total'),
-  ]);
-
-  document.getElementById('stat-hospedes').textContent = totalHospedes ?? '—';
-  document.getElementById('badge-hospedes').textContent = totalHospedes ?? '—';
-
-  document.getElementById('stat-quartos').textContent = totalQuartos ?? '—';
-  document.getElementById('badge-quartos').textContent = totalQuartos ?? '—';
-
-  document.getElementById('stat-reservas').textContent = totalReservas ?? '—';
-  document.getElementById('badge-reservas').textContent = totalReservas ?? '—';
-
-  const soma = (receita || []).reduce((acc, r) => acc + (parseFloat(r.valor_total) || 0), 0);
-  document.getElementById('stat-receita').textContent = formatBRL(soma);
-}
+/* Stats cards removed for read-only visualization (minicurso).
+   Badge counts will be updated by section loaders when appropriate. */
 
 /* ================================================
    TABELA: RESERVAS (dashboard)
@@ -132,7 +97,7 @@ async function loadTabelaReservas() {
    * e incluir numero_quarto + tipo via join explícito com hint de FK.
    * Se o hint falhar, o fallback usa numero_quarto diretamente.
    */
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('reservas')
     .select(`
       id,
@@ -172,136 +137,14 @@ async function loadTabelaReservas() {
    Tabela: quartos
    Coluna: status — valores reais: 'Livre', 'Ocupado', 'Manutenção'
    ================================================ */
-
-async function loadChartStatus() {
-  const { data, error } = await supabase
-    .from('quartos')
-    .select('status');
-
-  if (error || !data) return;
-
-  const counts = {};
-  data.forEach(q => {
-    counts[q.status] = (counts[q.status] || 0) + 1;
-  });
-
-  const labels = Object.keys(counts);
-  const values = Object.values(counts);
-
-  /* Cores mapeadas pelos valores reais da coluna status */
-  const colors = labels.map(l => {
-    if (l === 'Livre')      return 'rgba(52,  211, 153, 0.85)';
-    if (l === 'Ocupado')    return 'rgba(59,  130, 246, 0.85)';
-    if (l === 'Manutenção') return 'rgba(251, 191,  36, 0.85)';
-    return 'rgba(139, 92, 246, 0.85)';
-  });
-
-  const ctx = document.getElementById('chartStatus');
-  if (!ctx) return;
-
-  if (chartStatus) chartStatus.destroy();
-
-  chartStatus = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderColor: '#111118',
-        borderWidth: 3,
-        hoverOffset: 6,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '68%',
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: '#8b8ba8',
-            font: { family: 'Space Mono', size: 11 },
-            boxWidth: 10,
-            padding: 16,
-          },
-        },
-        tooltip: tooltipStyle(),
-      },
-    },
-  });
-}
+/* Charts removed for read-only visualization (minicurso). */
 
 /* ================================================
    GRÁFICO 2: Reservas por Hóspede
    Tabelas: reservas JOIN hospedes
    Colunas: hospedes.nome
    ================================================ */
-
-async function loadChartHospedes() {
-  const { data, error } = await supabase
-    .from('reservas')
-    .select(`
-      id,
-      hospedes ( nome )
-    `);
-
-  if (error || !data) return;
-
-  const counts = {};
-  data.forEach(r => {
-    const nome = r.hospedes?.nome ?? 'Desconhecido';
-    const primeiro = nome.split(' ')[0];
-    counts[primeiro] = (counts[primeiro] || 0) + 1;
-  });
-
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const labels = sorted.map(([k]) => k);
-  const values = sorted.map(([, v]) => v);
-
-  const ctx = document.getElementById('chartHospedes');
-  if (!ctx) return;
-
-  if (chartHospedes) chartHospedes.destroy();
-
-  chartHospedes = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Reservas',
-        data: values,
-        backgroundColor: 'rgba(139, 92, 246, 0.7)',
-        borderColor: 'rgba(139, 92, 246, 1)',
-        borderWidth: 1,
-        borderRadius: 4,
-        borderSkipped: false,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: tooltipStyle(),
-      },
-      scales: {
-        x: {
-          ticks: { color: '#8b8ba8', font: { family: 'Space Mono', size: 10 } },
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          border: { color: 'rgba(255,255,255,0.06)' },
-        },
-        y: {
-          ticks: { color: '#8b8ba8', font: { family: 'Space Mono', size: 10 }, stepSize: 1 },
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          border: { color: 'rgba(255,255,255,0.06)' },
-          beginAtZero: true,
-        },
-      },
-    },
-  });
-}
+/* Charts removed for read-only visualization (minicurso). */
 
 /* ================================================
    SEÇÃO: HÓSPEDES
@@ -313,7 +156,7 @@ async function loadSectionHospedes() {
   const tbody = document.getElementById('tbody-hospedes');
   if (!tbody || tbody.dataset.loaded) return;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('hospedes')
     .select('id, nome, cpf, data_nascimento, telefone, email')
     .order('nome');
@@ -347,7 +190,7 @@ async function loadSectionQuartos() {
   const tbody = document.getElementById('tbody-quartos');
   if (!tbody || tbody.dataset.loaded) return;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('quartos')
     .select('numero, tipo, valor_diaria, status')
     .order('numero');
@@ -381,7 +224,7 @@ async function loadSectionReservas() {
   const tbody = document.getElementById('tbody-reservas-full');
   if (!tbody || tbody.dataset.loaded) return;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('reservas')
     .select(`
       id,
@@ -427,7 +270,7 @@ async function loadSectionServicos() {
   if (!tbodyServ || tbodyServ.dataset.loaded) return;
 
   /* Serviços */
-  const { data: servicos, error: errServ } = await supabase
+  const { data: servicos, error: errServ } = await supabaseClient
     .from('servicos')
     .select('id, descricao, valor')
     .order('descricao');
@@ -450,7 +293,7 @@ async function loadSectionServicos() {
    * FK: reserva_id  → reservas(id)
    * FK: servico_id  → servicos(id)
    */
-  const { data: consumos, error: errCons } = await supabase
+  const { data: consumos, error: errCons } = await supabaseClient
     .from('consumos')
     .select(`
       id,
@@ -488,7 +331,7 @@ async function loadSectionServicos() {
    ================================================ */
 
 function initNavigation() {
-  document.querySelectorAll('.nav-item[data-section]').forEach(item => {
+  document.querySelectorAll('.nav-item[data-section], .dashboard-nav-card[data-section]').forEach(item => {
     item.addEventListener('click', e => {
       e.preventDefault();
       navigateTo(item.dataset.section);
@@ -514,7 +357,7 @@ function navigateTo(section) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.getElementById(`section-${section}`)?.classList.add('active');
 
-  if (!supabase) return;
+  if (!supabaseClient) return;
   switch (section) {
     case 'hospedes': loadSectionHospedes(); break;
     case 'quartos':  loadSectionQuartos();  break;
@@ -532,11 +375,11 @@ function initRefreshButton() {
   if (!btn) return;
 
   btn.addEventListener('click', async () => {
-    if (!supabase) return;
+    if (!supabaseClient) return;
     btn.classList.add('spinning');
     btn.disabled = true;
 
-    ['tbody-hospedes','tbody-quartos','tbody-reservas-full','tbody-servicos','tbody-consumos']
+    ['tbody-hospedes','tbody-quartos','tbody-reservas','tbody-reservas-full','tbody-servicos','tbody-consumos']
       .forEach(id => {
         const el = document.getElementById(id);
         if (el) delete el.dataset.loaded;
